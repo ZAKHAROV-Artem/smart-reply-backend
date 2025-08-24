@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"          // ← or mysql/sqlite: adapt as needed
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────────────────
+// 2. Core models
+model User {
+  id                String         @id @default(uuid())
+  email             String         @unique
+  name              String?
+  /** store a bcrypt/argon2 hash or leave NULL for magic-link flows */
+  passwordHash      String?
+  /** bcrypt hash of one-time code for email verification */
+  otpHash           String?
+  /** OTP expiry */
+  otpExpiresAt      DateTime?
+  /** Has the user verified their email? */
+  emailVerified     Boolean        @default(false)
+  /** Stripe’s customer ID (cus_XXX); nullable until first checkout */
+  stripeCustomerId  String?        @unique
+  /** Is this a temporary guest account? */
+  isGuest          Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  /** Free-tier: number of AI replies already generated */
+  freeRequestsUsed  Int            @default(0)
+
+  /** User accepted Privacy Policy & Terms (timestamp) */
+  policiesAcceptedAt DateTime?
+
+  /* Relations */
+  subscriptions     Subscription[] // one-to-many
+  paymentEvents     PaymentEvent[] // optional one-to-many
+  /** Per-cycle usage of OpenAI tokens */
+  tokenUsages      TokenUsage[]
+
+  /** Long-lived refresh tokens for session renewal */
+  refreshTokens    RefreshToken[]
+
+  /** Saved reply contexts */
+  contexts         Context[]
+}
+
+model Subscription {
+  id                   String              @id @default(uuid())
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId               String
+
+  /** Stripe identifiers */
+  stripeSubscriptionId String              @unique
+  stripePriceId        String              // price_XXX
+  status               SubscriptionStatus  @default(ACTIVE)
+
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean             @default(false)
+
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+}
+
+model PaymentEvent {
+  id               String    @id @default(uuid())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+
+  stripeEventId    String    @unique          // evt_XXX (webhook id)
+  type             String                     // e.g. invoice.payment_succeeded
+  amountTotal      Int?                       // in cents; null for zero-amount events
+  currency         String?                    // e.g. "usd"
+  occurredAt       DateTime                   // Stripe’s event time
+
+  createdAt        DateTime   @default(now())
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  /** bcrypt hash of the raw refresh token */
+  tokenHash  String
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+
+  /** Token validity – typically 30 days from issuance */
+  expiresAt  DateTime
+  /** Populated when the token is rotated or manually revoked */
+  revokedAt  DateTime?
+
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+model TokenUsage {
+  id               String   @id @default(uuid())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+
+  periodStart      DateTime
+  periodEnd        DateTime
+
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalCostUsd     Float    @default(0)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, periodStart])
+}
+
+model Context {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+
+  name         String
+  description  String
+  instructions String
+  tone         String
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+
+enum SubscriptionStatus {
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  PAUSED
+}
