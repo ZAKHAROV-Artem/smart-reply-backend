@@ -9,13 +9,17 @@ FROM oven/bun:1 AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN bunx prisma generate
+# Generate Prisma client and build the Bun bundle
+RUN bunx prisma generate && bun run build
 
 # Runtime image
 FROM oven/bun:1
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app ./
+
+# Install OpenSSL runtime dependency for Prisma
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 # If you run migrations at startup:
 # CMD ["bun", "run", "prisma", "migrate", "deploy"]  # optional pre-start
