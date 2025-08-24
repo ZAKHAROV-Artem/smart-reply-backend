@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "bun --hot src/index.ts",
-    "build": "bun build --outfile=dist/index.js --target=bun --minify ./src/index.ts",
+    "build": "bun install && bunx prisma generate && bunx prisma migrate deploy && bun build --outfile=dist/index.js --target=bun --minify ./src/index.ts && bun run start",
     "start": "bun dist/index.js",
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
